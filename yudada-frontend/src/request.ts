@@ -1,54 +1,82 @@
 import axios from "axios";
 import { Message } from "@arco-design/web-vue";
 
-// 是否是开发环境
 export const isDev = process.env.NODE_ENV === "development";
 
-// 创建 Axios 实例
 const myAxios = axios.create({
-  baseURL: isDev ? "http://localhost:8101" : "https://yudada-backend-144305-5-1346746332.sh.run.tcloudbase.com",
+  baseURL: isDev
+    ? "http://localhost:8101"
+    : "https://yudada-backend-144305-5-1346746332.sh.run.tcloudbase.com",
   timeout: 60000,
   withCredentials: true,
 });
 
-
-// 全局请求拦截器
+// 请求拦截器
 myAxios.interceptors.request.use(
-  function (config) {
-    // Do something before request is sent
+  (config) => {
+    // 可在这里添加全局请求头，如token等
+    // const token = localStorage.getItem('token');
+    // if (token) {
+    //   config.headers.Authorization = `Bearer ${token}`;
+    // }
     return config;
   },
-  function (error) {
-    // Do something with request error
+  (error) => {
     return Promise.reject(error);
   }
 );
 
-// 全局响应拦截器
+// 响应拦截器
 myAxios.interceptors.response.use(
-  function (response) {
-    console.log(response);
-    // Any status code that lie within the range of 2xx cause this function to trigger
-    // Do something with response data
+  (response) => {
     const { data } = response;
 
-    // 未登录
+    // 处理未登录情况
     if (data.code === 40100) {
-      // 不是获取用户信息的请求，并且用户目前不是已经在用户登录页面，则跳转到登录页面
-      if (
-        !response.request.responseURL.includes("user/get/login") &&
-        !window.location.pathname.includes("/user/login")
-      ) {
+      const isLoginRequest = response.config.url?.includes("user/get/login");
+      const isLoginPage = window.location.pathname.includes("/user/login");
+
+      if (!isLoginRequest && !isLoginPage) {
         Message.warning("请先登录");
-        window.location.href = `/user/login?redirect=${window.location.href}`;
+        const redirect = encodeURIComponent(window.location.href);
+        window.location.href = `/user/login?redirect=${redirect}`;
+        return Promise.reject(new Error("未登录"));
       }
     }
 
-    return response;
+    // 其他业务错误处理
+    if (data.code !== 0) {
+      Message.error(data.message || "请求失败");
+      return Promise.reject(data);
+    }
+
+    return data; // 通常直接返回data而不是整个response
   },
-  function (error) {
-    // Any status codes that falls outside the range of 2xx cause this function to trigger
-    // Do something with response error
+  (error) => {
+    // 网络错误处理
+    if (error.response) {
+      switch (error.response.status) {
+        case 401:
+          Message.error("未授权，请登录");
+          break;
+        case 403:
+          Message.error("拒绝访问");
+          break;
+        case 404:
+          Message.error("请求资源不存在");
+          break;
+        case 500:
+          Message.error("服务器错误");
+          break;
+        default:
+          Message.error(`请求错误: ${error.response.status}`);
+      }
+    } else if (error.request) {
+      Message.error("请求超时，请检查网络");
+    } else {
+      Message.error(`请求错误: ${error.message}`);
+    }
+
     return Promise.reject(error);
   }
 );
